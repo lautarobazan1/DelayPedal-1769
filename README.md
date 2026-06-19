@@ -1,57 +1,79 @@
-# DelayPedal-1769
-Firmware para LPC1769 que captura audio por ADC, procesa efectos de delay y saturacion en tiempo real, y reproduce por DAC usando GPDMA y control UART.
-
 # Eco de Audio ADC-DAC con GPDMA en LPC1769
 
-Proyecto final de sistemas embebidos orientado al procesamiento de audio en
-tiempo real. El firmware toma una senal analogica por el ADC del LPC1769, la
-procesa en bloques y la reproduce por el DAC usando transferencias GPDMA con
-buffers ping-pong.
+> **Asignatura:** Electronica Digital III - Universidad Nacional de Cordoba  
+> **Integrantes:** Completar con nombre y apellido  
+> **Profesor:** Completar con nombre del profesor  
 
-## Tabla de contenidos
+---
 
-- [Descripcion](#descripcion)
-- [Caracteristicas](#caracteristicas)
-- [Arquitectura general](#arquitectura-general)
-- [Hardware utilizado](#hardware-utilizado)
-- [Comandos UART](#comandos-uart)
-- [Estructura del repositorio](#estructura-del-repositorio)
-- [Funcionamiento interno](#funcionamiento-interno)
-- [Memoria AHB SRAM](#memoria-ahb-sram)
-- [Compilacion e integracion](#compilacion-e-integracion)
-- [Validacion recomendada](#validacion-recomendada)
+## 1. Descripcion General del Proyecto
 
-## Descripcion
+Este proyecto implementa un sistema de procesamiento de audio en tiempo real
+sobre un microcontrolador LPC1769. La senal de entrada se captura por el ADC,
+se procesa digitalmente en la CPU y se reproduce por el DAC integrado. Para
+reducir la carga del procesador, la transferencia de muestras se realiza con
+GPDMA en esquema ping-pong.
 
-El objetivo del proyecto es implementar un efecto de eco configurable sobre una
-placa con microcontrolador LPC1769. La entrada de audio se captura por `AD0.0`,
-se procesa en la CPU y se envia a la salida analogica `AOUT`.
+El sistema esta pensado como una aplicacion embebida de efectos de audio. El
+usuario puede seleccionar entre un modo delay y un modo saturacion, ademas de
+modificar parametros en tiempo real mediante comandos UART.
 
-El sistema cuenta con dos modos de audio:
+### Alcances del Proyecto
 
-- **Delay**: mezcla la senal directa con una senal retardada entre 0 y 500 ms.
-- **Saturacion**: aplica ganancia y clipping duro sobre la senal de entrada.
+**El sistema si es capaz de:**
 
-Los parametros principales se modifican en tiempo real mediante `UART0`, sin
-detener la captura ni la reproduccion de audio.
+- Capturar una senal analogica de audio por `AD0.0 / P0.23`.
+- Reproducir la senal procesada por `AOUT / P0.26`.
+- Procesar audio en bloques de 256 muestras.
+- Usar GPDMA canal 2 para transferir datos del ADC a memoria.
+- Usar GPDMA canal 3 para transferir datos de memoria al DAC.
+- Generar un efecto de delay configurable entre 0 y 500 ms.
+- Ajustar el repeat del eco entre 0 y 90 %.
+- Aplicar un modo de saturacion con ganancia y limite configurables.
+- Recibir comandos por UART0 a 115200 8N1.
+- Alternar entre modos mediante un boton conectado a `EINT0 / P2.10`.
 
-## Caracteristicas
+**El sistema no incluye:**
 
-- Captura de audio por ADC0 canal 0.
-- Salida de audio por DAC integrado.
-- Frecuencia de muestreo de `22000 Hz`.
-- Transferencias por GPDMA en canales 2 y 3.
-- Buffers ping-pong para entrada y salida.
-- Linea circular de retardo en memoria AHB SRAM.
-- Control por UART a `115200 8N1`.
-- Cambio de modo mediante boton por interrupcion externa `EINT0`.
-- Procesamiento con aritmetica entera y ganancias en formato Q15.
-- Rutinas de consulta para revisar estado desde el entorno de desarrollo.
+- Almacenamiento de audio en memoria externa o tarjeta SD.
+- Interfaz grafica en PC o aplicacion movil.
+- Conectividad inalambrica Wi-Fi o Bluetooth.
+- Procesamiento estereo.
+- Ecualizacion por bandas o filtros digitales avanzados.
+- Etapa analogica completa de amplificacion de potencia.
 
-## Arquitectura general
+### Posibles Etapas Siguientes
+
+- Disenar una placa PCB con conectores de entrada y salida de audio.
+- Agregar una etapa analogica de acondicionamiento, filtrado y proteccion.
+- Incorporar un codec de audio externo para mejorar resolucion y calidad.
+- Implementar mas efectos, como chorus, flanger, tremolo o filtro pasa bajos.
+- Crear una interfaz grafica para modificar parametros desde una PC.
+- Agregar almacenamiento de presets en memoria no volatil.
+
+---
+
+## 2. Arquitectura del Sistema: Hardware y Software
+
+### Hardware e Interconexion
+
+El sistema usa perifericos internos del LPC1769 y una entrada/salida analogica
+basica para audio.
+
+| Bloque | Funcion | Recurso |
+| --- | --- | --- |
+| Entrada analogica | Captura de audio | ADC0 canal 0, `P0.23 / AD0.0` |
+| Salida analogica | Reproduccion de audio | DAC, `P0.26 / AOUT` |
+| Transferencia de entrada | Copia muestras ADC a memoria | GPDMA CH2 |
+| Transferencia de salida | Copia muestras de memoria al DAC | GPDMA CH3 |
+| Temporizacion | Marca la frecuencia de muestreo | Timer0 / MAT0.1 |
+| Comunicacion | Comandos y monitoreo | UART0 TX P0.2, RX P0.3 |
+| Boton de modo | Cambio entre efectos | EINT0, P2.10 |
+
+#### Diagrama de Bloques
 
 ```text
-Entrada analogica
+Entrada de audio
       |
       v
 ADC0.0 / P0.23
@@ -73,153 +95,211 @@ GPDMA CH3
       |
       v
 DAC AOUT / P0.26
+      |
+      v
+Salida de audio
 ```
 
-Timer0 genera el ritmo de muestreo del ADC. El DAC usa su contador interno para
-pedir datos por DMA con la misma base temporal, manteniendo sincronizada la
-captura con la reproduccion.
+#### Consideraciones de Diseno de Hardware
 
-## Hardware utilizado
+- La entrada analogica debe mantenerse dentro del rango admitido por el ADC.
+- La senal de audio se trabaja alrededor de media escala para poder representar
+  valores positivos y negativos usando un DAC unipolar.
+- La salida `AOUT` puede requerir una etapa externa de filtrado o amplificacion
+  segun el uso final.
+- El boton de modo se configura con pull-up y deteccion por flanco descendente.
+- UART0 permite conectar una terminal serial para enviar comandos y observar
+  el estado del sistema.
 
-| Recurso | Funcion | Pin / canal |
-| --- | --- | --- |
-| ADC0 canal 0 | Entrada de audio | P0.23 / AD0.0 |
-| DAC | Salida de audio | P0.26 / AOUT |
-| UART0 TX | Mensajes hacia la terminal | P0.2 |
-| UART0 RX | Recepcion de comandos | P0.3 |
-| EINT0 | Boton de cambio de modo | P2.10 |
-| Timer0 MAT0.1 | Disparo periodico del ADC | Interno |
-| GPDMA CH2 | ADC a memoria | Interno |
-| GPDMA CH3 | Memoria a DAC | Interno |
+### Arquitectura de Software
 
-## Comandos UART
+El firmware trabaja sin sistema operativo. La arquitectura es bare-metal, basada
+en inicializacion de perifericos, interrupciones y un lazo principal liviano.
 
-La UART se usa para cambiar parametros mientras el firmware esta corriendo. Los
-comandos se envian por una terminal serial configurada en `115200 8N1` y se
-confirman con Enter.
+```text
+Inicio
+  |
+  v
+AudioEcho_Init()
+  |
+  v
+AudioEcho_Start()
+  |
+  v
+while (1)
+  |
+  |-- procesa comandos UART pendientes
+  |-- reporta cambios de modo pendientes
+  `-- espera interrupciones con __WFI()
+```
 
-| Comando | Accion | Rango |
-| --- | --- | --- |
-| `T<ms>` | Cambia el tiempo de delay | 0 a 500 ms |
-| `R<porcentaje>` | Cambia el repeat del eco | 0 a 90 % |
-| `G<ganancia>` | Cambia el drive del saturador | 1x a 32x |
-| `L<limite>` | Cambia el limite de clipping | 32 a 511 LSB |
-| `D` | Activa modo delay | Sin valor |
-| `S` | Activa modo saturacion | Sin valor |
-| `?` | Consulta el estado actual | Sin valor |
+Las interrupciones principales son:
 
-Al iniciar, el sistema informa el modo actual y muestra la lista de comandos
-disponibles. Hay una explicacion mas detallada del sistema UART en
-[`README_UART.md`](README_UART.md).
+| Interrupcion | Funcion |
+| --- | --- |
+| `DMA_IRQHandler()` | Detecta bloques completos de ADC y DAC, y llama al procesamiento |
+| `UART0_IRQHandler()` | Recibe caracteres y arma comandos UART |
+| `EINT0_IRQHandler()` | Alterna entre modo delay y modo saturacion |
 
-## Estructura del repositorio
+---
+
+## 3. Especificaciones Electricas, Alimentacion y Entorno
+
+### Parametros de Alimentacion y Consumo
+
+| Parametro | Valor |
+| --- | --- |
+| Tension logica del LPC1769 | 3.3 V |
+| Entrada ADC | Rango compatible con el ADC del LPC1769 |
+| Salida DAC | Salida analogica `AOUT` del microcontrolador |
+| Metodo de alimentacion | Segun placa de desarrollo utilizada |
+| Consumo estimado | Depende de la placa y etapa analogica externa |
+
+### Especificaciones de Firmware
+
+| Parametro | Valor |
+| --- | --- |
+| Microcontrolador | NXP LPC1769 |
+| Nucleo | ARM Cortex-M3 |
+| Frecuencia de muestreo | 22000 Hz |
+| Tamano de bloque DMA | 256 muestras |
+| Retardo inicial | 250 ms |
+| Retardo maximo | 500 ms |
+| Repeat maximo | 90 % |
+| Resolucion ADC | 12 bits |
+| Resolucion DAC | 10 bits |
+| UART | 115200 baudios, 8N1 |
+
+### Perifericos Utilizados
+
+- ADC0 canal 0.
+- DAC.
+- GPDMA canales 2 y 3.
+- Timer0.
+- UART0.
+- EINT0.
+- NVIC.
+- Bancos AHB SRAM0/SRAM1.
+
+### Estrategia de Concurrencia
+
+El sistema usa una arquitectura bare-metal con interrupciones. El DMA mueve las
+muestras sin intervencion constante de la CPU. La CPU procesa un bloque cuando
+ambos canales DMA terminaron su transferencia. La UART recibe caracteres por
+interrupcion, pero el comando completo se interpreta en el lazo principal para
+no bloquear el flujo de audio.
+
+---
+
+## 4. Proceso de Integracion y Desarrollo
+
+### Etapa 1: Configuracion Base
+
+Se configuraron los relojes principales de los perifericos usados: Timer0, ADC,
+DAC y UART0. Tambien se definieron los parametros globales del sistema, como la
+frecuencia de muestreo, el tamano de bloque y los canales DMA.
+
+### Etapa 2: Adquisicion y Reproduccion
+
+Se configuro el ADC para capturar la entrada analogica y el DAC para reproducir
+muestras a una frecuencia estable. Timer0 se uso como base temporal para el
+muestreo.
+
+### Etapa 3: Integracion con GPDMA
+
+Se agregaron los canales GPDMA pedidos por el proyecto:
+
+- Canal 2 para transferir muestras desde ADC hacia memoria.
+- Canal 3 para transferir muestras desde memoria hacia DAC.
+
+Tambien se implementaron listas enlazadas LLI para sostener el funcionamiento
+continuo con buffers ping-pong.
+
+### Etapa 4: Procesamiento de Audio
+
+Se implemento la conversion de muestras ADC a audio centrado, la linea circular
+de delay, la mezcla de senal directa con senal retardada y el modo saturacion
+con clipping duro.
+
+### Etapa 5: Control por UART y Boton
+
+Se agrego UART0 para modificar parametros en tiempo real y EINT0 para cambiar
+de modo con un boton fisico. Los comandos se procesan sin detener el audio.
+
+---
+
+## 5. Ensayos, Pruebas y Resultados
+
+### Pruebas Funcionales Realizadas
+
+- Verificacion de inicializacion del DAC en media escala.
+- Verificacion de recepcion de comandos por UART0.
+- Cambio de modo entre delay y saturacion.
+- Ajuste de tiempo de delay con comando `T`.
+- Ajuste de repeat con comando `R`.
+- Ajuste de ganancia de saturacion con comando `G`.
+- Ajuste de limite de saturacion con comando `L`.
+- Consulta de estado con comando `?`.
+- Revision de errores DMA mediante `AudioEcho_GetDmaErrorFlags()`.
+- Revision del contador de bloques mediante `AudioEcho_GetProcessedBlocks()`.
+
+### Evidencia Recomendada para la Entrega
+
+Para completar la documentacion final se recomienda agregar:
+
+- Captura de terminal serial mostrando comandos UART y respuestas del sistema.
+- Captura de osciloscopio en la salida DAC.
+- Foto del prototipo conectado.
+- Diagrama o captura del circuito de entrada y salida analogica.
+
+### Resultado Esperado
+
+El sistema debe mantener una salida de audio continua, responder comandos UART
+en tiempo real y alternar entre los modos de procesamiento sin reiniciar el
+firmware.
+
+---
+
+## 6. Estructura del Repositorio
 
 ```text
 ProyectoFinal/
 |-- main.c.txt
 |-- README.md
-`-- README_UART.md
+|-- README_UART.md
+`-- README_ENTREGA.md
 ```
 
-| Archivo | Contenido |
+| Archivo | Descripcion |
 | --- | --- |
-| `main.c.txt` | Codigo principal del firmware |
-| `README.md` | Documentacion general del proyecto |
-| `README_UART.md` | Explicacion especifica del sistema UART |
+| `main.c.txt` | Codigo fuente principal del firmware |
+| `README.md` | README general estilo GitHub |
+| `README_UART.md` | Explicacion detallada del sistema UART |
+| `README_ENTREGA.md` | Documento de presentacion para entrega academica |
 
-> Nota: si el IDE requiere extension `.c`, el archivo `main.c.txt` puede
-> incorporarse como fuente C manteniendo el mismo contenido.
+---
 
-## Funcionamiento interno
+## 7. Comandos UART
 
-### Inicializacion
+| Comando | Funcion | Rango |
+| --- | --- | --- |
+| `T<ms>` | Cambia el tiempo de delay | 0 a 500 ms |
+| `R<porcentaje>` | Cambia el repeat | 0 a 90 % |
+| `G<ganancia>` | Cambia la ganancia del saturador | 1x a 32x |
+| `L<limite>` | Cambia el limite de saturacion | 32 a 511 LSB |
+| `D` | Activa modo delay | Sin valor |
+| `S` | Activa modo saturacion | Sin valor |
+| `?` | Consulta el estado actual | Sin valor |
 
-`AudioEcho_Init()` configura el sistema completo:
+Cuando se recibe un comando valido, el firmware actualiza la variable
+correspondiente e informa el estado actual por UART.
 
-1. Limpia las variables globales.
-2. Define los divisores de reloj para Timer0, DAC, ADC y UART0.
-3. Limpia la zona AHB SRAM usada por DMA.
-4. Inicializa buffers de salida con media escala para evitar golpes de audio.
-5. Prepara las listas enlazadas del GPDMA.
-6. Configura UART0, boton, canales DMA, DAC, Timer0 y ADC.
+---
 
-### Arranque
+## 8. Conclusion
 
-`AudioEcho_Start()` habilita los canales DMA, activa las solicitudes DMA del DAC
-y arranca Timer0. Desde ese momento el sistema comienza a capturar, procesar y
-reproducir audio de forma continua.
-
-### Procesamiento por bloque
-
-`AudioEcho_ProcessBlock()` trabaja sobre bloques de `256` muestras:
-
-1. Lee la muestra capturada por ADC.
-2. La convierte a una muestra centrada en cero.
-3. Aplica el modo activo: delay o saturacion.
-4. Limita el resultado al rango del DAC.
-5. Guarda la palabra lista para escribir en `LPC_DAC->DACR`.
-
-### Interrupciones
-
-| Interrupcion | Funcion |
-| --- | --- |
-| `DMA_IRQHandler()` | Detecta fin de bloque y errores de GPDMA |
-| `UART0_IRQHandler()` | Recibe caracteres de comandos UART |
-| `EINT0_IRQHandler()` | Cambia entre delay y saturacion con debounce |
-
-El procesamiento del comando UART se realiza en el lazo principal para no
-bloquear las interrupciones de audio.
-
-## Memoria AHB SRAM
-
-Los buffers DMA, las LLI del GPDMA y la linea de delay se ubican en la zona AHB
-SRAM desde `0x2007C000`.
-
-El proyecto reserva hasta `32 KiB` para:
-
-- `adcLli[2]`
-- `dacLli[2]`
-- `adcDmaBuffer[2][256]`
-- `dacDmaBuffer[2][256]`
-- `delayLine[]`
-
-El codigo incluye una comprobacion en compilacion para asegurar que la
-estructura completa entra en la memoria disponible.
-
-## Compilacion e integracion
-
-Requisitos principales:
-
-- Microcontrolador LPC1769.
-- Toolchain C para ARM Cortex-M3.
-- Librerias `LPC17xx`.
-- Headers de ADC, DAC, GPDMA, Timer, UART, EXTI y CLKPWR.
-- Script de linker compatible con el mapa de memoria usado.
-
-Puntos a revisar en el entorno de desarrollo:
-
-- Agregar `main.c.txt` como archivo fuente C o renombrarlo segun la
-  configuracion del IDE.
-- Verificar que los headers `LPC17xx.h` y `lpc17xx_*.h` esten disponibles.
-- Confirmar que la region AHB SRAM usada por DMA no se solape con pila, heap u
-  otras variables.
-- Asegurar que las rutinas `DMA_IRQHandler`, `UART0_IRQHandler` y
-  `EINT0_IRQHandler` queden vinculadas a la tabla de vectores.
-
-## Validacion recomendada
-
-1. Conectar una senal analogica adecuada al pin `P0.23 / AD0.0`.
-2. Conectar la salida `P0.26 / AOUT` a un osciloscopio, filtro o etapa de audio.
-3. Abrir una terminal serial en `UART0` a `115200 8N1`.
-4. Encender el sistema y verificar que se informe el modo inicial.
-5. Enviar comandos `T`, `R`, `G`, `L`, `D`, `S` y `?`.
-6. Confirmar que `AudioEcho_GetDmaErrorFlags()` permanezca en cero.
-7. Confirmar que `AudioEcho_GetProcessedBlocks()` aumente de forma continua.
-
-## Resumen tecnico
-
-El firmware usa perifericos del LPC1769 para mantener el flujo de audio en
-hardware y dejar a la CPU solo el procesamiento de muestras. El ADC y el DAC se
-sincronizan por temporizacion, el DMA mueve los bloques de datos y la CPU aplica
-el efecto seleccionado. La UART permite ajustar parametros en tiempo real y el
-boton externo permite alternar el modo de procesamiento.
+El proyecto integra adquisicion analogica, reproduccion analogica, DMA,
+temporizacion por hardware, interrupciones y comunicacion UART en un sistema de
+audio en tiempo real. La implementacion permite demostrar el uso coordinado de
+perifericos avanzados del LPC1769 y una arquitectura bare-metal eficiente para
+procesamiento digital de senales.
